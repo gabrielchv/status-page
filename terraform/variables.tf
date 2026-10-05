@@ -9,8 +9,8 @@ variable "region" {
   default     = "us-central1"
 }
 
-variable "database_url" {
-  description = "Postgres connection string (Neon / Cloud SQL)"
+variable "database_password" {
+  description = "Postgres password (Cloud SQL / Neon)"
   type        = string
   sensitive   = true
 }

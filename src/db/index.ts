@@ -8,8 +8,19 @@ const globalForDb = globalThis as unknown as {
   postgres?: ReturnType<typeof postgres>;
 };
 
-const client =
-  globalForDb.postgres ?? postgres(env.DATABASE_URL, { max: 3 });
+function createClient() {
+  if (env.DATABASE_SOCKET) {
+    return postgres({
+      host: env.DATABASE_SOCKET,
+      user: env.DATABASE_USER,
+      password: env.DATABASE_PASSWORD,
+      database: env.DATABASE_NAME,
+    });
+  }
+  return postgres(env.DATABASE_URL!, { max: 3 });
+}
+
+const client = globalForDb.postgres ?? createClient();
 
 if (process.env.NODE_ENV !== "production") {
   globalForDb.postgres = client;

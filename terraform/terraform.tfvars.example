@@ -3,6 +3,6 @@
 project_id          = "status-page-XXXXXX"
 region              = "us-central1"
 
-database_url        = "postgresql://user:pass@host/db?sslmode=require"
+database_password   = "replace-with-a-strong-postgres-password"
 auth_secret         = "replace-with-a-long-random-string"
 check_runner_secret = "replace-with-another-long-random-string"

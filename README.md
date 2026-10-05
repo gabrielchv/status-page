@@ -20,8 +20,9 @@ updates, Prometheus metrics, and Terraform-managed GCP infrastructure.
   Events (SSE).
 - **Auth** — email/password with `bcrypt` hashing and server-side sessions
   (hashed token in Postgres, `httpOnly` + `SameSite=Lax` cookie).
-- **Observability** — structured JSON logs (pino), `/healthz`, `/readyz`, and a
-  `/metrics` Prometheus endpoint exposing check counters, latency, and incident
+- **Observability** — structured JSON logs (pino), `/api/healthz`, `/api/readyz`,
+  and a `/api/metrics` Prometheus endpoint exposing check counters, latency, and
+  incident
   transitions.
 - **Deploy** — Docker + Cloud Run, Terraform for GCP resources, keyless CI via
   Workload Identity Federation.
@@ -46,7 +47,7 @@ updates, Prometheus metrics, and Terraform-managed GCP infrastructure.
   Browser ───────────────▶  Next.js 16 (App Router)
    dashboard + status page   ├─ REST API (auth, monitors, status)
                              ├─ SSE /api/status/:slug/events
-                             └─ /healthz /readyz /metrics
+                             └─ /api/healthz /api/readyz /api/metrics
 ```
 
 ## Stack
@@ -101,6 +102,7 @@ Then configure these GitHub Actions secrets and push to `main`:
 
 - `GCP_PROJECT`, `GCP_REGION` (e.g. `us-central1`)
 - `GCP_RUN_SA`, `GCP_SA`, `WIF_PROVIDER` (from the `terraform output` above)
+- `GCP_DB_CONNECTION` (`PROJECT:REGION:INSTANCE`), `GCP_DB_USER`, `GCP_DB_NAME`
 - `CHECK_RUNNER_SECRET` (must match the Terraform value)
 
 The `Deploy` workflow builds/pushes the image and runs `gcloud run deploy`,
@@ -110,7 +112,9 @@ then creates/updates the Cloud Scheduler job.
 
 | Variable | Purpose |
 |---|---|
-| `DATABASE_URL` | Postgres connection string |
+| `DATABASE_URL` | Postgres connection string (local dev / Neon — TCP mode) |
+| `DATABASE_SOCKET` | Unix socket path for the Cloud Run → Cloud SQL connector (socket mode) |
+| `DATABASE_USER` / `DATABASE_PASSWORD` / `DATABASE_NAME` | Credentials for socket mode |
 | `AUTH_SECRET` | Secret for password/session hashing |
 | `CHECK_RUNNER_SECRET` | Shared secret guarding `/api/internal/run-checks` |
 | `APP_URL` | Public app URL (used for links) |

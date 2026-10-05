@@ -21,16 +21,16 @@ resource "google_artifact_registry_repository" "app" {
 # Secrets. Values arrive as variables; the Cloud Run service reads them at
 # deploy time via `--set-secrets`.
 # ---------------------------------------------------------------------------
-resource "google_secret_manager_secret" "database_url" {
-  secret_id = "database-url"
+resource "google_secret_manager_secret" "database_password" {
+  secret_id = "database-password"
   replication {
     auto {}
   }
 }
 
-resource "google_secret_manager_secret_version" "database_url" {
-  secret      = google_secret_manager_secret.database_url.secret_id
-  secret_data = var.database_url
+resource "google_secret_manager_secret_version" "database_password" {
+  secret      = google_secret_manager_secret.database_password.secret_id
+  secret_data = var.database_password
 }
 
 resource "google_secret_manager_secret" "auth_secret" {
@@ -70,10 +70,17 @@ resource "google_service_account" "deploy" {
   display_name = "status-page CI deploy"
 }
 
+# The run SA needs Cloud SQL client access to use the built-in connector.
+resource "google_project_iam_member" "run_sql_client" {
+  project = var.project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${google_service_account.run.email}"
+}
+
 # The run SA reads the three secrets.
 resource "google_secret_manager_secret_iam_member" "run_secret_access" {
   for_each = toset([
-    google_secret_manager_secret.database_url.secret_id,
+    google_secret_manager_secret.database_password.secret_id,
     google_secret_manager_secret.auth_secret.secret_id,
     google_secret_manager_secret.check_runner_secret.secret_id,
   ])

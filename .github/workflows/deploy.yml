@@ -31,12 +31,15 @@ jobs:
 
       - name: Deploy to Cloud Run
         run: |
+          DB_CONNECTION="${{ secrets.GCP_DB_CONNECTION }}"
           gcloud run deploy status-page \
             --image "$IMAGE" \
             --region "${{ secrets.GCP_REGION }}" \
             --platform managed \
             --service-account "${{ secrets.GCP_RUN_SA }}" \
-            --set-secrets "DATABASE_URL=database-url:latest,AUTH_SECRET=auth-secret:latest,CHECK_RUNNER_SECRET=check-runner-secret:latest" \
+            --add-cloudsql-instances "$DB_CONNECTION" \
+            --set-env-vars "DATABASE_SOCKET=/cloudsql/$DB_CONNECTION,DATABASE_USER=${{ secrets.GCP_DB_USER }},DATABASE_NAME=${{ secrets.GCP_DB_NAME }}" \
+            --set-secrets "DATABASE_PASSWORD=database-password:latest,AUTH_SECRET=auth-secret:latest,CHECK_RUNNER_SECRET=check-runner-secret:latest" \
             --allow-unauthenticated \
             --min-instances 1 \
             --max-instances 1
