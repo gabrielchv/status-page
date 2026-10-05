@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: statuspage
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/statuspage
+      AUTH_SECRET: ci-secret-000000000000
+      CHECK_RUNNER_SECRET: ci-secret-000000000000
+      APP_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx drizzle-kit migrate
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+      - run: npm run e2e
+      - run: npm run build

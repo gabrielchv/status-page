@@ -1,0 +1,11 @@
+node_modules
+.next
+.git
+.env*
+drizzle
+test-results
+playwright-report
+coverage
+terraform
+.github
+*.md

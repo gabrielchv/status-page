@@ -1,0 +1,59 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and push image
+        run: |
+          IMAGE="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/status-page/app:${{ github.sha }}"
+          gcloud auth configure-docker "${{ secrets.GCP_REGION }}-docker.pkg.dev"
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy status-page \
+            --image "$IMAGE" \
+            --region "${{ secrets.GCP_REGION }}" \
+            --platform managed \
+            --service-account "${{ secrets.GCP_RUN_SA }}" \
+            --set-secrets "DATABASE_URL=database-url:latest,AUTH_SECRET=auth-secret:latest,CHECK_RUNNER_SECRET=check-runner-secret:latest" \
+            --allow-unauthenticated \
+            --min-instances 1 \
+            --max-instances 1
+
+      - name: Ensure Cloud Scheduler job
+        run: |
+          SERVICE_URL=$(gcloud run services describe status-page \
+            --region "${{ secrets.GCP_REGION }}" --format='value(status.url)')
+          gcloud scheduler jobs create http status-page-run-checks \
+            --location "${{ secrets.GCP_REGION }}" \
+            --schedule "* * * * *" \
+            --time-zone "Etc/UTC" \
+            --uri "${SERVICE_URL}/api/internal/run-checks" \
+            --http-method POST \
+            --headers "X-Runner-Secret=${{ secrets.CHECK_RUNNER_SECRET }}" \
+            || gcloud scheduler jobs update http status-page-run-checks \
+                 --location "${{ secrets.GCP_REGION }}" \
+                 --uri "${SERVICE_URL}/api/internal/run-checks" \
+                 --http-method POST \
+                 --headers "X-Runner-Secret=${{ secrets.CHECK_RUNNER_SECRET }}"

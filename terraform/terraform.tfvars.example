@@ -1,0 +1,8 @@
+# Copy to terraform.tfvars and fill in real values (terraform.tfvars is git-ignored).
+
+project_id          = "status-page-XXXXXX"
+region              = "us-central1"
+
+database_url        = "postgresql://user:pass@host/db?sslmode=require"
+auth_secret         = "replace-with-a-long-random-string"
+check_runner_secret = "replace-with-another-long-random-string"
