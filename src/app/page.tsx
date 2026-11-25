@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { desc, eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { checks, monitors } from "@/db/schema";
+import { monitors } from "@/db/schema";
 import { getCurrentUser } from "@/lib/session";
+import { latestCheckByMonitor } from "@/lib/latest-checks";
 import { StatusBadge } from "@/components/status-badge";
 
 export const dynamic = "force-dynamic";
@@ -18,18 +19,7 @@ export default async function DashboardPage() {
     .where(eq(monitors.userId, user.id));
 
   const ids = userMonitors.map((m) => m.id);
-  const latest = ids.length
-    ? await db
-        .select()
-        .from(checks)
-        .where(inArray(checks.monitorId, ids))
-        .orderBy(desc(checks.checkedAt))
-    : [];
-
-  const latestByMonitor = new Map<string, (typeof latest)[number]>();
-  for (const c of latest) {
-    if (!latestByMonitor.has(c.monitorId)) latestByMonitor.set(c.monitorId, c);
-  }
+  const latestByMonitor = await latestCheckByMonitor(ids);
 
   return (
     <main className="mx-auto max-w-4xl px-4 py-10">

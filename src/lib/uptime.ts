@@ -1,9 +1,3 @@
-export type UptimeRow = {
-  success: boolean;
-  latencyMs: number;
-  checkedAt: Date;
-};
-
 export type UptimeSummary = {
   uptime7d: number | null;
   uptime30d: number | null;
@@ -12,65 +6,54 @@ export type UptimeSummary = {
   totalChecks: number;
 };
 
-const DAYS = [7, 30, 90] as const;
+/**
+ * Per-window tallies for one monitor, produced by the database rather than by
+ * loading rows into memory.
+ *
+ * This used to be `computeUptime(rows)` over every check in the last 90 days.
+ * At the minimum interval of 30s that is ~259,200 rows per monitor, materialized
+ * into JS objects on every unauthenticated `GET /api/status/<slug>` — and the
+ * status page refreshes on every SSE `check` event, so one open tab re-ran it
+ * every 30s. Aggregating in SQL makes the cost a constant: one row out, however
+ * long the monitor has been running.
+ */
+export type UptimeCounts = {
+  ok7: number;
+  total7: number;
+  ok30: number;
+  total30: number;
+  ok90: number;
+  total90: number;
+  latencySum: number;
+  latencyCount: number;
+};
+
+export const EMPTY_COUNTS: UptimeCounts = {
+  ok7: 0,
+  total7: 0,
+  ok30: 0,
+  total30: 0,
+  ok90: 0,
+  total90: 0,
+  latencySum: 0,
+  latencyCount: 0,
+};
 
 function percent(ok: number, total: number): number | null {
   if (total === 0) return null;
   return Math.round((ok / total) * 10000) / 100;
 }
 
-/**
- * Pure aggregation over check rows. Each window computes the percentage of
- * successful checks and the mean latency over that window.
- */
-export function computeUptime(rows: UptimeRow[]): UptimeSummary {
-  const now = Date.now();
-  const windows = new Map<(typeof DAYS)[number], { ok: number; total: number; latency: number }>();
-
-  for (const d of DAYS) {
-    windows.set(d, { ok: 0, total: 0, latency: 0 });
-  }
-
-  let totalChecks = 0;
-  let latencySum = 0;
-  let latencyCount = 0;
-
-  for (const row of rows) {
-    const age = now - row.checkedAt.getTime();
-    totalChecks += 1;
-    latencySum += row.latencyMs;
-    latencyCount += 1;
-
-    for (const d of DAYS) {
-      if (age <= d * 24 * 60 * 60 * 1000) {
-        const w = windows.get(d)!;
-        w.total += 1;
-        if (row.success) w.ok += 1;
-        w.latency += row.latencyMs;
-      }
-    }
-  }
-
-  const summary: UptimeSummary = {
-    uptime7d: null,
-    uptime30d: null,
-    uptime90d: null,
-    avgLatencyMs: latencyCount > 0 ? Math.round(latencySum / latencyCount) : null,
-    totalChecks,
+/** Pure aggregation over pre-tallied counts. */
+export function summaryFromCounts(counts: UptimeCounts): UptimeSummary {
+  return {
+    uptime7d: percent(counts.ok7, counts.total7),
+    uptime30d: percent(counts.ok30, counts.total30),
+    uptime90d: percent(counts.ok90, counts.total90),
+    avgLatencyMs:
+      counts.latencyCount > 0
+        ? Math.round(counts.latencySum / counts.latencyCount)
+        : null,
+    totalChecks: counts.total90,
   };
-
-  summary.uptime7d = (() => {
-    const w = windows.get(7)!;
-    return w.total > 0 ? percent(w.ok, w.total) : null;
-  })();
-  summary.uptime30d = (() => {
-    const w = windows.get(30)!;
-    return w.total > 0 ? percent(w.ok, w.total) : null;
-  })();
-  summary.uptime90d = (() => {
-    const w = windows.get(90)!;
-    return w.total > 0 ? percent(w.ok, w.total) : null;
-  })();
-
-  return summary;
 }
