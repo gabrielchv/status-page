@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { monitors } from "@/db/schema";
 import { getCurrentUser } from "@/lib/session";
+import { allowPrivateFromEnv, assertMonitoredUrl, UnsafeUrlError } from "@/lib/check/url-guard";
 
 const updateSchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),
@@ -36,6 +37,18 @@ export async function PATCH(
   const parsed = updateSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return Response.json({ error: "Invalid input" }, { status: 400 });
+  }
+
+  // A URL change is the same SSRF surface as creation, so it gets the same check.
+  if (parsed.data.url) {
+    try {
+      assertMonitoredUrl(parsed.data.url, { allowPrivate: allowPrivateFromEnv() });
+    } catch (error) {
+      if (error instanceof UnsafeUrlError) {
+        return Response.json({ error: error.message, code: error.code }, { status: 400 });
+      }
+      throw error;
+    }
   }
 
   const updated = await db

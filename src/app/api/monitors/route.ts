@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { monitors } from "@/db/schema";
 import { getCurrentUser } from "@/lib/session";
 import { slugify, ensureUniqueSlug } from "@/lib/slug";
+import { allowPrivateFromEnv, assertMonitoredUrl, UnsafeUrlError } from "@/lib/check/url-guard";
 
 const createSchema = z.object({
   name: z.string().trim().min(1).max(100),
@@ -40,11 +41,22 @@ export async function POST(request: Request) {
   const existingSlugs = await db
     .select({ slug: monitors.slug })
     .from(monitors);
-
   const slug = ensureUniqueSlug(
     slugify(parsed.data.name),
     new Set(existingSlugs.map((m) => m.slug)),
   );
+
+  // Refuse an undeliverable target at write time with a 400 the user can act on.
+  // The check runner validates again at connect time, because a hostname can
+  // resolve differently later.
+  try {
+    assertMonitoredUrl(parsed.data.url, { allowPrivate: allowPrivateFromEnv() });
+  } catch (error) {
+    if (error instanceof UnsafeUrlError) {
+      return Response.json({ error: error.message, code: error.code }, { status: 400 });
+    }
+    throw error;
+  }
 
   const created = await db
     .insert(monitors)
