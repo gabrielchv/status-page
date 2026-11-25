@@ -18,23 +18,27 @@ function daysAgo(days: number): Date {
  * `UptimeCounts` for what this replaced and why it mattered.
  */
 async function uptimeCounts(monitorId: string): Promise<UptimeCounts> {
-  const since7 = daysAgo(7);
-  const since30 = daysAgo(30);
-  const since90 = daysAgo(90);
+  // ISO strings, not Date objects. `drizzle-orm/postgres-js` passes raw `sql`
+  // parameters to postgres.js, which does not serialise Date instances and
+  // throws `The "string" argument must be of type string ... Received an
+  // instance of Date`. Inside a template the bound value is raw, unlike a
+  // column comparison where Drizzle applies the column's codec.
+  const since7 = daysAgo(7).toISOString();
+  const since30 = daysAgo(30).toISOString();
 
   const rows = await db
     .select({
-      ok7: sql<number>`count(*) filter (where ${checks.checkedAt} >= ${since7} and ${checks.success})`,
-      total7: sql<number>`count(*) filter (where ${checks.checkedAt} >= ${since7})`,
-      ok30: sql<number>`count(*) filter (where ${checks.checkedAt} >= ${since30} and ${checks.success})`,
-      total30: sql<number>`count(*) filter (where ${checks.checkedAt} >= ${since30})`,
+      ok7: sql<number>`count(*) filter (where ${checks.checkedAt} >= ${since7}::timestamptz and ${checks.success})`,
+      total7: sql<number>`count(*) filter (where ${checks.checkedAt} >= ${since7}::timestamptz)`,
+      ok30: sql<number>`count(*) filter (where ${checks.checkedAt} >= ${since30}::timestamptz and ${checks.success})`,
+      total30: sql<number>`count(*) filter (where ${checks.checkedAt} >= ${since30}::timestamptz)`,
       ok90: sql<number>`count(*) filter (where ${checks.success})`,
       total90: sql<number>`count(*)`,
       latencySum: sql<number>`coalesce(sum(${checks.latencyMs}), 0)`,
       latencyCount: sql<number>`count(${checks.latencyMs})`,
     })
     .from(checks)
-    .where(and(eq(checks.monitorId, monitorId), gte(checks.checkedAt, since90)));
+    .where(and(eq(checks.monitorId, monitorId), gte(checks.checkedAt, daysAgo(90))));
 
   const row = rows[0];
   if (!row) return EMPTY_COUNTS;

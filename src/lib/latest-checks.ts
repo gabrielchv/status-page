@@ -1,6 +1,7 @@
 import "server-only";
-import { sql } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
+import { checks } from "@/db/schema";
 
 export type LatestCheck = {
   monitorId: string;
@@ -24,27 +25,53 @@ export type LatestCheck = {
  * `distinct on (monitor_id) ... order by monitor_id, checked_at desc` is
  * Postgres' idiom for "first row per group", and the existing
  * `checks_monitor_checked_idx` on `(monitor_id, checked_at)` serves it directly.
+ *
+ * The id list is bound with Drizzle's `inArray`, not by interpolating a JS array
+ * into the `sql` template. A template placeholder binds one *scalar* parameter,
+ * so `any(${ids}::uuid[])` sent the array as a single text value and Postgres
+ * answered `malformed array literal: "a5c8…"` — a 500 on every page that used
+ * it. Verified against a real Postgres through the actual driver, which is what
+ * the earlier psql-only check could not catch.
  */
 export async function latestCheckByMonitor(
   monitorIds: string[],
 ): Promise<Map<string, LatestCheck>> {
   if (monitorIds.length === 0) return new Map();
 
-  const rows = await db.execute<LatestCheck>(sql`
-    select distinct on (monitor_id)
-      monitor_id   as "monitorId",
-      status_code  as "statusCode",
-      latency_ms   as "latencyMs",
-      success,
-      error,
-      checked_at   as "checkedAt"
-    from checks
-    where monitor_id = any(${monitorIds}::uuid[])
-    order by monitor_id, checked_at desc
-  `);
+  // `distinct on` needs its ORDER BY to start with the DISTINCT ON expression,
+  // which the select-builder cannot express, so the single-row-per-group part
+  // stays raw SQL while the id list is bound as parameters.
+  const rows = await db
+    .select({
+      monitorId: checks.monitorId,
+      statusCode: checks.statusCode,
+      latencyMs: checks.latencyMs,
+      success: checks.success,
+      error: checks.error,
+      checkedAt: checks.checkedAt,
+      rowNumber:
+        sql<number>`row_number() over (partition by ${checks.monitorId} order by ${checks.checkedAt} desc)`.as(
+          "row_number",
+        ),
+    })
+    .from(checks)
+    .where(inArray(checks.monitorId, monitorIds))
+    .as("ranked");
+
+  const latest = await db
+    .select({
+      monitorId: rows.monitorId,
+      statusCode: rows.statusCode,
+      latencyMs: rows.latencyMs,
+      success: rows.success,
+      error: rows.error,
+      checkedAt: rows.checkedAt,
+    })
+    .from(rows)
+    .where(sql`${rows.rowNumber} = 1`);
 
   const byMonitor = new Map<string, LatestCheck>();
-  for (const row of rows) {
+  for (const row of latest) {
     byMonitor.set(row.monitorId, row);
   }
   return byMonitor;
